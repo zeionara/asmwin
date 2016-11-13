@@ -124,15 +124,18 @@ readEl macro rg, rgl, mas, index
 endm
 
 mulEls macro rgs, rgd
+       LOCAL source_positive, source_negative_and_destination_positive, to_multiplying, source_positive_and_destination_positive, lp_multiplying, to_end_of_multiplying, finish
     push esi
+    xor esi,esi
     push edi
-    push bp
-    mov bp, sp
+    push ebp
+    mov ebp, esp
 
     ; check sign of rgs
     shl rgs, 12
     rcl rgs, 1
-    jnc $+02Fh
+    jnc source_positive ;if sign = 0
+        ;source negative
         rcr rgs, 1
         shr rgs, 12
 
@@ -141,66 +144,75 @@ mulEls macro rgs, rgd
 
         shl rgd, 12
         rcl rgd, 1
-        jnc $+010h
+        jnc source_negative_and_destination_positive
+            ;source_negative_and_destination_negative
             rcr rgd, 1
             shr rgd, 12
 
             not rgd
             inc rgd
-            jmp $+032h
-
-            rcr rgd, 1
-            shr rgd, 12
-            inc bp
-        jmp $+028h
-
+            ;result is positive
+            jmp to_multiplying
+            source_negative_and_destination_positive:; and source negative
+              rcr rgd, 1
+              shr rgd, 12
+              inc ebp
+              ;rezult is negative
+              jmp to_multiplying
+    source_positive:
         rcr rgs, 1
         shr rgs, 12
 
         shl rgd, 12
         rcl rgd, 1
-        jnc $+011h
+        jnc source_positive_and_destination_positive
+            ;source_positive_and_destination_negative
             rcr rgd, 1
             shr rgd, 12
 
             not rgd
             inc rgd
-            inc bp
-            jmp $+09h
-
+            inc ebp
+            ;rezult is negative
+            jmp to_multiplying
+        source_positive_and_destination_positive:
             rcr rgd, 1
             shr rgd, 12
-    ;cont:
+            ;rezult is positive
+    to_multiplying:
 
-    mov edi, 20
-    shl rgs, 12
-    ;lp1:
-        dec di
-        cmp di, 0
-        jl $+016h
 
+
+      mov edi, 20
+      shl rgs, 12
+      lp_multiplying:
+        dec edi
+        cmp edi, 0
+        jl to_end_of_multiplying
+        ;next step of multiplying
         rcl rgs, 1
-        jnc $-09h
-            push cx
-            mov cx, di
-            shl rgd, cl
-            add esi, rgd
+        jnc lp_multiplying ;we have to don't shift destination
+            push ecx
+            mov ecx, edi
+            shl rgd, cl ;we have to shift destination
+            add esi, rgd  ;and we have to accumulate rezult too
             shr rgd, cl
-            pop cx
-            jmp $-018h
-
-    ;toexit:
-    mov rgd, esi
-    cmp bp, sp
-    je $+09h
+            pop ecx
+            jmp lp_multiplying
+    to_end_of_multiplying:
+    mov rgd, esi ;in destination - accumulated multiply
+    cmp ebp, esp ;if equals - rezult is positive
+    je finish
+        ;else we need to change sign
         not rgd
         inc rgd
-
-    ;finish:
-    pop bp
+    finish:
+    pop ebp
     pop edi
     pop esi
 endm
+
+
 
 data segment
   del db 0FFh
@@ -209,16 +221,34 @@ data segment
 
   ;outputting
   rezultheader db "Rezult",0
-  rezulthello db "Here is rezult array after multiplying:",0
+  rezulthello db "Here is rezult array after multiplying:",13
+  binreprez db 420 DUP (0),0
+  newline1 db 13,0
+
   sourceheader db "Source",0
   sourcehello db "Here is source array before multiplying:",13
-  binrep db 220 DUP (0),0
-  newline db 13,0
+  binrep db 320 DUP (0),0
+  newline2 db 13,0
 data ends
 
 text segment
 start:
   ;filling source array
+  CALL fillsource
+
+  ;showing source
+  CALL showsource
+
+  ;showing rezult
+  CALL showrezult
+
+;showRezult
+
+  ;end
+  ret
+
+
+fillsource proc
   mov eax, 1
   addEl eax, al, mas, 0
 
@@ -267,62 +297,155 @@ start:
   mov eax, 6
   addEl eax, al, mas, 15
 
-  ;showing rezult
-  xor ecx,ecx
-  xor eax,eax
+  ret
+fillsource endp
+
+showsource proc
+
+xor ecx, ecx
+push edi
+xor edi,edi
+push eax
+xor eax,eax
+push esi
+xor esi,esi
+lp1:
+  xor edx, edx
+  readEl edx, dl, mas, ecx
+  mov eax,edx
+  shl eax, 12
+
+  mov binrep[edi],13
+  inc edi
+  mov esi,edi
+  push edi
+  lpin3:
+    pop edi
+    rcl eax, 1
+    jnc contin31
+      mov binrep[edi],31h
+      inc edi
+      jmp contin32
+    contin31:
+      mov binrep[edi],30h
+      inc edi
+  contin32:
+    push edi
+    sub edi,esi
+    cmp edi,20
+    jl lpin3
+  pop edi
+  inc cx
+  cmp cx,15
+  jle lp1
+
+pop esi
+pop eax
+pop edi
+
+push 0
+push offset sourceheader
+push offset sourcehello
+push 0
+call MessageBoxA@16
+
+ret
+showsource endp
+
+showrezult proc
+
+xor ecx, ecx
+push edi
+xor edi,edi
+push eax
+xor eax,eax
+push esi
+xor esi,esi
+lp2:
+  xor edx, edx
+  readEl edx, dl, mas, ecx
+  mov eax,edx
+
+  inc ecx
+  cmp ecx,15
+  jg exitlp2
 
   xor edx, edx
-  xor ecx, ecx
+  readEl edx, dl, mas, ecx
+
+  mulEls edx,eax
+
+  shl eax, 12
+
+  mov binreprez[edi],13
+  inc edi
+  mov esi,edi
   push edi
-  xor edi,edi
-  push eax
-  xor eax,eax
-  push esi
-  xor esi,esi
-  lp1:
-    xor edx, edx
-    readEl edx, dl, mas, ecx
-    mov eax,edx
-    shl eax, 12
-
-    mov binrep[edi],13
-    inc edi
-    mov esi,edi
-    push edi
-    lpin3:
-      pop edi
-      rcl eax, 1
-      jnc contin31
-        mov binrep[edi],31h
-        inc edi
-        jmp contin32
-      contin31:
-        mov binrep[edi],30h
-        inc edi
-    contin32:
-      push edi
-      sub edi,esi
-      cmp edi,20
-      jl lpin3
+  lpin3:
     pop edi
-    inc cx
-    cmp cx,15
-    jle lp1
-
-  pop esi
-  pop eax
+    rcl eax, 1
+    jnc contin31
+      mov binreprez[edi],31h
+      inc edi
+      jmp contin32
+    contin31:
+      mov binreprez[edi],30h
+      inc edi
+  contin32:
+    push edi
+    sub edi,esi
+    cmp edi,20
+    jl lpin3
   pop edi
-  pop edx
 
-  push 0
-  push offset sourceheader
-  push offset sourcehello
-  push 0
-  call MessageBoxA@16
+  jmp lp2
+  exitlp2:
 
-  ;end
-  ret
+;;;;;;;;;;;;;;;;;;;;
 
+xor edx, edx
+xor ecx, ecx
+readEl edx, dl, mas, ecx
+
+mulEls edx,eax
+
+shl eax, 12
+
+mov binreprez[edi],13
+inc edi
+mov esi,edi
+push edi
+lpin31:
+  pop edi
+  rcl eax, 1
+  jnc contin311
+    mov binreprez[edi],31h
+    inc edi
+    jmp contin321
+  contin311:
+    mov binreprez[edi],30h
+    inc edi
+contin321:
+  push edi
+  sub edi,esi
+  cmp edi,20
+  jl lpin31
+pop edi
+
+;;;;;;;;;;;;;;;;;;;;
+
+pop esi
+pop eax
+pop edi
+
+push 0
+push offset rezultheader
+push offset rezulthello
+push 0
+call MessageBoxA@16
+
+ret
+showrezult endp
 
 
 
